@@ -225,6 +225,13 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(f"WARNING: --max-pages {args.max_pages} に到達しました。"
                       "末尾検出に失敗した可能性があります。", file=sys.stderr)
+                # max-pages 到達時も末尾の連続重複は除外する。stop-after に届かず
+                # 検出 break には入らなかったが、末尾数枚が同一ハッシュの場合は
+                # 重複として PDF から除外するのが合理的（MEDIUM #1）。
+                trim = detector.trim_count
+                if trim > 0:
+                    captured_files = captured_files[: len(captured_files) - trim]
+                    print(f"末尾の連続重複 {trim} ページを除外しました。", file=sys.stderr)
         except KeyboardInterrupt:
             interrupted = True
             print("\n中断シグナルを受信しました。", file=sys.stderr)

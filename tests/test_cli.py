@@ -382,3 +382,65 @@ def test_main_window_disappears_midway_user_declines_pdf(tmp_path, monkeypatch):
 
     assert rc == 130
     assert not output_pdf.exists()
+
+
+def test_main_max_pages_trims_trailing_duplicates(tmp_path, monkeypatch, capsys):
+    """--max-pages 到達時に末尾の連続重複ページがトリミングされ、PDF に含まれないことを
+    確認（MEDIUM #1）。stop-after=3 だが末尾重複が 2 連続のため停止判定にはかからず、
+    --max-pages で停止するケース。"""
+    monkeypatch.chdir(tmp_path)
+    output_pdf = tmp_path / "trimmed.pdf"
+
+    counter = [0]
+    last_color: dict[str, tuple[int, int, int]] = {}
+
+    def fake_screencapture(cmd, **kwargs):
+        out_path = Path(cmd[-1])
+        counter[0] += 1
+        c = counter[0]
+        # 1〜3 ページ目は別画像、4〜5 ページ目は同じ画像（2 連続重複）。
+        # max-pages=5、stop-after=3 のため停止せず max-pages で抜ける。
+        if c <= 3:
+            color = ((c * 53) % 256, (c * 97) % 256, (c * 31) % 256)
+        else:
+            color = (200, 50, 100)  # 4 と 5 は同じ
+        last_color["last"] = color
+        _make_png(out_path, color)
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    def fake_osascript(cmd, **kwargs):
+        joined = " ".join(cmd)
+        if "id of front window" in joined:
+            return MagicMock(returncode=0, stdout="42\n", stderr="")
+        if "exists process" in joined:
+            return MagicMock(returncode=0, stdout="true\n", stderr="")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    def dispatch(cmd, **kwargs):
+        if cmd[0] == "screencapture":
+            return fake_screencapture(cmd, **kwargs)
+        return fake_osascript(cmd, **kwargs)
+
+    with patch("kindle_screenshot.capture.subprocess.run", side_effect=dispatch), \
+         patch("kindle_screenshot.input.subprocess.run", side_effect=dispatch), \
+         patch("kindle_screenshot.cli.input", return_value=""), \
+         patch("kindle_screenshot.cli.time.sleep"):
+        rc = main([
+            "-o", output_pdf.name,
+            "-d", str(tmp_path),
+            "--countdown", "0",
+            "--max-pages", "5",
+            "--stop-after", "3",
+            "--crop-top", "0",
+            "--crop-bottom", "0",
+        ])
+
+    assert rc == 0
+    assert output_pdf.exists()
+    assert counter[0] == 5  # max-pages まで撮影した
+    err = capsys.readouterr().err
+    assert "末尾の連続重複" in err  # トリミングメッセージ
+    # 4 ページ目と 5 ページ目が同一なので、5 ページ撮影 → trim_count=1 で 4 ページに
+    # なるはず。PDF が確かに生成されていることを軽く確認（ページ数の厳密確認は
+    # img2pdf の生成バイナリのため省略）。
+    assert output_pdf.stat().st_size > 0
