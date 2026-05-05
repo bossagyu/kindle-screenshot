@@ -176,14 +176,35 @@ def main(argv: list[str] | None = None) -> int:
 
                 try:
                     capture_window_to_png(window_id, tmp_png)
-                except RuntimeError as e:
-                    # 1 回だけリトライ
+                except (RuntimeError, subprocess.CalledProcessError) as e:
+                    # 1 回だけリトライ。screencapture は対象ウィンドウが消滅すると
+                    # CalledProcessError（returncode=1, "could not create image from window"）
+                    # で失敗するため、RuntimeError と同等にリトライ対象とする（設計 §6:
+                    # 「Kindle ウィンドウが途中で消えた → 中断扱い、PDF 化を提案」）。
                     print(f"  [{page_num}] キャプチャ失敗: {e} → リトライ", file=sys.stderr)
                     time.sleep(args.delay)
                     try:
                         capture_window_to_png(window_id, tmp_png)
-                    except RuntimeError as e2:
-                        print(f"  [{page_num}] 再失敗: {e2} → 中断", file=sys.stderr)
+                    except (RuntimeError, subprocess.CalledProcessError) as e2:
+                        # 1 ページも取得できていない場合は権限不足の可能性が高い。
+                        # CalledProcessError は外側の except 句に伝播させて HIGH #1
+                        # の権限案内パスに合流させる。それ以外は終了コード 4 相当の
+                        # 内部 RuntimeError として扱う。
+                        if not captured_files:
+                            if isinstance(e2, subprocess.CalledProcessError):
+                                raise
+                            print(
+                                f"  [{page_num}] 再失敗: {e2} → 中断", file=sys.stderr
+                            )
+                            break
+                        # 取得済みページがある場合は Ctrl+C と同等の中断扱いに合流させ、
+                        # 取得済みページの PDF 化をユーザーに提案する（設計 §6）。
+                        print(
+                            f"  [{page_num}] 再失敗: {e2} → 中断扱い"
+                            "（取得済みページで PDF 化を提案）",
+                            file=sys.stderr,
+                        )
+                        interrupted = True
                         break
 
                 process_image(

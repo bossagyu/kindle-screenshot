@@ -272,3 +272,113 @@ def test_main_returns_3_when_screencapture_permission_denied(tmp_path, monkeypat
     captured = capsys.readouterr()
     assert "Screen Recording" in captured.err
     assert "System Settings" in captured.err
+
+
+def test_main_window_disappears_midway_falls_back_to_interrupt_prompt(tmp_path, monkeypatch):
+    """途中で Kindle ウィンドウが消えると screencapture が CalledProcessError を投げる。
+    リトライ後も失敗した場合、取得済みページがあれば Ctrl+C と同等の中断扱いプロンプトに
+    合流し、Y を選べば取得済みページで PDF 化されることを確認（HIGH #2）。"""
+    monkeypatch.chdir(tmp_path)
+    output_pdf = tmp_path / "partial.pdf"
+
+    counter = [0]
+    def fake_screencapture(cmd, **kwargs):
+        out_path = Path(cmd[-1])
+        counter[0] += 1
+        # 1〜3 ページ目は成功、4 ページ目以降はウィンドウ消滅で常に失敗
+        # （リトライ含めて毎回 CalledProcessError）
+        if counter[0] <= 3:
+            c = counter[0]
+            _make_png(out_path, ((c * 53) % 256, (c * 97) % 256, (c * 31) % 256))
+            return MagicMock(returncode=0, stdout="", stderr="")
+        raise subprocess.CalledProcessError(
+            returncode=1,
+            cmd=cmd,
+            output="",
+            stderr="screencapture: could not create image from window",
+        )
+
+    def fake_osascript(cmd, **kwargs):
+        joined = " ".join(cmd)
+        if "id of front window" in joined:
+            return MagicMock(returncode=0, stdout="42\n", stderr="")
+        if "exists process" in joined:
+            return MagicMock(returncode=0, stdout="true\n", stderr="")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    def dispatch(cmd, **kwargs):
+        if cmd[0] == "screencapture":
+            return fake_screencapture(cmd, **kwargs)
+        return fake_osascript(cmd, **kwargs)
+
+    # Enter 待ち（最初の input）→ 中断プロンプトの応答（"y"）の順に返す
+    inputs = iter(["", "y"])
+
+    with patch("kindle_screenshot.capture.subprocess.run", side_effect=dispatch), \
+         patch("kindle_screenshot.input.subprocess.run", side_effect=dispatch), \
+         patch("kindle_screenshot.cli.input", side_effect=lambda *a, **kw: next(inputs)), \
+         patch("kindle_screenshot.cli.time.sleep"):
+        rc = main([
+            "-o", output_pdf.name,
+            "-d", str(tmp_path),
+            "--countdown", "0",
+            "--crop-top", "0",
+            "--crop-bottom", "0",
+            "--stop-after", "5",  # 末尾検出で停止しないよう厳しめ
+        ])
+
+    assert rc == 0
+    assert output_pdf.exists()
+    assert output_pdf.stat().st_size > 0
+
+
+def test_main_window_disappears_midway_user_declines_pdf(tmp_path, monkeypatch):
+    """ウィンドウ消滅で中断プロンプト → ユーザー N → 終了コード 130 を確認（HIGH #2）。"""
+    monkeypatch.chdir(tmp_path)
+    output_pdf = tmp_path / "declined.pdf"
+
+    counter = [0]
+    def fake_screencapture(cmd, **kwargs):
+        out_path = Path(cmd[-1])
+        counter[0] += 1
+        if counter[0] <= 2:
+            c = counter[0]
+            _make_png(out_path, ((c * 53) % 256, (c * 97) % 256, (c * 31) % 256))
+            return MagicMock(returncode=0, stdout="", stderr="")
+        raise subprocess.CalledProcessError(
+            returncode=1,
+            cmd=cmd,
+            output="",
+            stderr="screencapture: could not create image from window",
+        )
+
+    def fake_osascript(cmd, **kwargs):
+        joined = " ".join(cmd)
+        if "id of front window" in joined:
+            return MagicMock(returncode=0, stdout="42\n", stderr="")
+        if "exists process" in joined:
+            return MagicMock(returncode=0, stdout="true\n", stderr="")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    def dispatch(cmd, **kwargs):
+        if cmd[0] == "screencapture":
+            return fake_screencapture(cmd, **kwargs)
+        return fake_osascript(cmd, **kwargs)
+
+    inputs = iter(["", "n"])
+
+    with patch("kindle_screenshot.capture.subprocess.run", side_effect=dispatch), \
+         patch("kindle_screenshot.input.subprocess.run", side_effect=dispatch), \
+         patch("kindle_screenshot.cli.input", side_effect=lambda *a, **kw: next(inputs)), \
+         patch("kindle_screenshot.cli.time.sleep"):
+        rc = main([
+            "-o", output_pdf.name,
+            "-d", str(tmp_path),
+            "--countdown", "0",
+            "--crop-top", "0",
+            "--crop-bottom", "0",
+            "--stop-after", "5",
+        ])
+
+    assert rc == 130
+    assert not output_pdf.exists()
