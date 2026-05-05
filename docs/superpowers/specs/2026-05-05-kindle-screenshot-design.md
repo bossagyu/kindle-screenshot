@@ -234,6 +234,7 @@ PDF 生成。
 | Kindle ウィンドウが途中で消えた | 中断扱い、PDF 化を提案 |
 | 想定外の osascript 出力（カンマ区切り 4 要素でない、非数値） | `KindleNotFoundError` に翻訳して終了コード 2 |
 | ループ中にユーザーがウィンドウを移動・リサイズ | `screencapture -R` は固定領域なので以降のキャプチャがズレる。README で「実行中はウィンドウを動かさない」と注意喚起 |
+| osascript `-1728` エラー（AppleScript 非対応） | 権限不足ではなく Kindle アプリのバージョン互換性問題の可能性を案内。エラー文に `(-1728)` が含まれていればそれを優先案内。終了コード 3。issue #7（`id of front window` 非対応）/ issue #9（`tell application "Kindle"` 非対応）の経緯を踏まえる |
 
 ## 7. テスト戦略
 
