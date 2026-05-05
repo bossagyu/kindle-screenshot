@@ -91,6 +91,8 @@ uv 経由で `uv run kindle-screenshot ...` または `.venv` activate 後に直
 | `--crop-bottom` | int | `40` | ウィンドウ下部の進捗バー除去 px |
 | `--crop-left` | int | `0` | 左余白 px |
 | `--crop-right` | int | `0` | 右余白 px |
+| `--keep-images` | path | なし | 指定ディレクトリに最終画像（`page_NNNNN.<jpg\|png>`）を保存。Claude Code への画像入力ワークフロー用。省略時は破棄 |
+| `--no-pdf` | flag | `False` | PDF 生成をスキップ。`--keep-images <dir>` との併用が必須 |
 | `-h, --help` | flag | - | ヘルプ表示 |
 
 ### デフォルト値の根拠
@@ -235,6 +237,7 @@ PDF 生成。
 | 想定外の osascript 出力（カンマ区切り 4 要素でない、非数値） | `KindleNotFoundError` に翻訳して終了コード 2 |
 | ループ中にユーザーがウィンドウを移動・リサイズ | `screencapture -R` は固定領域なので以降のキャプチャがズレる。README で「実行中はウィンドウを動かさない」と注意喚起 |
 | osascript `-1728` エラー（AppleScript 非対応） | 権限不足ではなく Kindle アプリのバージョン互換性問題の可能性を案内。エラー文に `(-1728)` が含まれていればそれを優先案内。終了コード 3。issue #7（`id of front window` 非対応）/ issue #9（`tell application "Kindle"` 非対応）の経緯を踏まえる |
+| `--no-pdf` 単独指定（`--keep-images` なし） | argparse の `parser.error()` でエラー終了（exit 2）。エラーメッセージに「`--no-pdf` を指定する場合は `--keep-images <dir>` の指定が必要です」を含める（issue #14） |
 
 ## 7. テスト戦略
 
