@@ -14,9 +14,14 @@ def compute_hash(img_path: Path) -> str:
     完全に同一フレームかどうかの判定用。perceptual hash ではなく
     生ピクセル比較なので、わずかなノイズでも別ハッシュになる。Kindle で
     同じページを撮り直したときは厳密にバイト一致するため、これで十分。
+
+    リサンプリング方式は LANCZOS を明示的に指定する。Pillow 9.x まではデフォルトが
+    BICUBIC、10.x 以降は LANCZOS 相当に変わった経緯があり、デフォルト依存だと
+    Pillow バージョン更新でハッシュ値が変動して既存ペアの「同一判定」が
+    壊れるリスクがある。明示することで再現性を保つ（issue #3 / L2）。
     """
     with Image.open(img_path) as img:
-        small = img.convert("L").resize((64, 64))
+        small = img.convert("L").resize((64, 64), Image.Resampling.LANCZOS)
         return hashlib.sha256(small.tobytes()).hexdigest()
 
 
