@@ -64,8 +64,13 @@ def _parse_bounds(raw: str) -> tuple[int, int, int, int]:
     """osascript 出力 "x,y,w,h" を 4 要素タプルにパースする。
 
     想定外の形式（カンマ区切りでない、要素数 != 4、非数値）の場合は
-    KindleNotFoundError に翻訳する（M3 と同じ精神でユーザーに分かる
-    エラーメッセージにする）。
+    KindleNotFoundError に翻訳する。さらに width/height の論理バリデーション
+    （> 0 のチェック）を行い、最小化中などで 0 や負の値が返ってきた場合も
+    KindleNotFoundError に翻訳して、後段の screencapture が「権限不足」と
+    誤誘導するのを防ぐ（issue #11 / M-N1）。
+
+    位置 (x, y) は負の値を許容する（マルチディスプレイで上方向のサブディスプレイ
+    にウィンドウがある場合は y が負になる）。サイズ (w, h) のみ正の値を要求する。
     """
     parts = raw.split(",")
     if len(parts) != 4:
@@ -78,6 +83,11 @@ def _parse_bounds(raw: str) -> tuple[int, int, int, int]:
         raise KindleNotFoundError(
             f"Kindle ウィンドウの位置/サイズが数値として解釈できません（osascript 出力: {raw!r}）"
         ) from e
+    if w <= 0 or h <= 0:
+        raise KindleNotFoundError(
+            f"Kindle ウィンドウのサイズが不正です（最小化中の可能性、サイズ={w}x{h}）。"
+            "Kindle ウィンドウを最小化解除してから再実行してください。"
+        )
     return x, y, w, h
 
 

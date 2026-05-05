@@ -81,6 +81,50 @@ def test_get_kindle_window_bounds_tolerates_whitespace():
         assert get_kindle_window_bounds() == (760, -2033, 1684, 1473)
 
 
+def test_get_kindle_window_bounds_raises_on_zero_size_minimized():
+    """Kindle ウィンドウ最小化時は position/size が 0 を返すことがあり、
+    width=0 や height=0 のままだと後段の screencapture が失敗して
+    「権限不足」と誤誘導される。論理バリデーションで KindleNotFoundError に翻訳し、
+    「最小化中の可能性」をユーザー導線として示す（issue #11 / M-N1）。"""
+    with patch("kindle_screenshot.capture.subprocess.run") as mock_run:
+        mock_run.return_value = _mock_run("0,0,0,0\n")
+        with pytest.raises(KindleNotFoundError, match="最小化"):
+            get_kindle_window_bounds()
+
+
+def test_get_kindle_window_bounds_raises_on_zero_width():
+    """width だけが 0 の不正値も拒否する。"""
+    with patch("kindle_screenshot.capture.subprocess.run") as mock_run:
+        mock_run.return_value = _mock_run("100,200,0,400\n")
+        with pytest.raises(KindleNotFoundError, match="サイズが不正"):
+            get_kindle_window_bounds()
+
+
+def test_get_kindle_window_bounds_raises_on_zero_height():
+    """height だけが 0 の不正値も拒否する。"""
+    with patch("kindle_screenshot.capture.subprocess.run") as mock_run:
+        mock_run.return_value = _mock_run("100,200,300,0\n")
+        with pytest.raises(KindleNotFoundError, match="サイズが不正"):
+            get_kindle_window_bounds()
+
+
+def test_get_kindle_window_bounds_raises_on_negative_size():
+    """負の width/height は本来あり得ないが、防御層として KindleNotFoundError に
+    翻訳する。"""
+    with patch("kindle_screenshot.capture.subprocess.run") as mock_run:
+        mock_run.return_value = _mock_run("100,100,-50,400\n")
+        with pytest.raises(KindleNotFoundError, match="サイズが不正"):
+            get_kindle_window_bounds()
+
+
+def test_get_kindle_window_bounds_allows_negative_position():
+    """位置 (x, y) の負値はマルチディスプレイ環境で正常なので許容する
+    （リグレッション防止: サイズ検証で位置まで弾かれていないことを確認）。"""
+    with patch("kindle_screenshot.capture.subprocess.run") as mock_run:
+        mock_run.return_value = _mock_run("-500,-1500,1024,1400\n")
+        assert get_kindle_window_bounds() == (-500, -1500, 1024, 1400)
+
+
 from pathlib import Path
 
 from kindle_screenshot.capture import capture_region_to_png
