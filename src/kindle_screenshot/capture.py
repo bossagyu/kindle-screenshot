@@ -12,7 +12,10 @@ class KindleNotFoundError(RuntimeError):
     """Kindle.app が起動していない、またはウィンドウが見つからない。"""
 
 
-_WINDOW_ID_SCRIPT = """
+# Kindle for Mac は AppleScript の `id` プロパティに対応していない（-1728 エラー）。
+# 代わりに `position` と `size` を取得して `screencapture -R x,y,w,h` でキャプチャする。
+# `as string` で連結することでロケール依存の小数点表記（カンマ vs ピリオド）を回避。
+_WINDOW_BOUNDS_SCRIPT = """
 tell application "System Events"
     if not (exists process "Kindle") then
         return "NOT_RUNNING"
@@ -22,7 +25,9 @@ tell application "System Events"
             return "NO_WINDOW"
         end if
         try
-            return id of front window as string
+            set p to position of front window
+            set s to size of front window
+            return (item 1 of p as string) & "," & (item 2 of p as string) & "," & (item 1 of s as string) & "," & (item 2 of s as string)
         on error
             return "NO_WINDOW"
         end try
@@ -31,14 +36,18 @@ end tell
 """
 
 
-def get_kindle_window_id() -> int:
-    """Kindle.app のフロントウィンドウ ID を取得する。
+def get_kindle_window_bounds() -> tuple[int, int, int, int]:
+    """Kindle.app のフロントウィンドウの位置とサイズを取得する。
+
+    Returns:
+        (x, y, width, height) のタプル。x, y は論理ピクセル座標で、
+        マルチディスプレイ環境では負の値になり得る。
 
     Raises:
-        KindleNotFoundError: Kindle 未起動 or ウィンドウなし
+        KindleNotFoundError: Kindle 未起動 / ウィンドウなし / 想定外の osascript 出力
     """
     result = subprocess.run(
-        ["osascript", "-e", _WINDOW_ID_SCRIPT],
+        ["osascript", "-e", _WINDOW_BOUNDS_SCRIPT],
         capture_output=True,
         text=True,
         check=True,
@@ -48,19 +57,46 @@ def get_kindle_window_id() -> int:
         raise KindleNotFoundError("Kindle.app が起動していません。アプリを起動して書籍を開いてください。")
     if out == "NO_WINDOW":
         raise KindleNotFoundError("Kindle のウィンドウが見つかりません。書籍を開いてください。")
-    return int(out)
+    return _parse_bounds(out)
 
 
-def capture_window_to_png(window_id: int, out: Path) -> None:
-    """指定ウィンドウ ID の内容を PNG でキャプチャする。
+def _parse_bounds(raw: str) -> tuple[int, int, int, int]:
+    """osascript 出力 "x,y,w,h" を 4 要素タプルにパースする。
 
-    `-x` で無音化、`-t png` で常に可逆形式。後段で必要なら PIL で
-    JPEG に変換する（screencapture の JPEG は品質指定不可なので、
-    PNG を経由して品質を厳密に制御する設計にしている）。
+    想定外の形式（カンマ区切りでない、要素数 != 4、非数値）の場合は
+    KindleNotFoundError に翻訳する（M3 と同じ精神でユーザーに分かる
+    エラーメッセージにする）。
     """
+    parts = raw.split(",")
+    if len(parts) != 4:
+        raise KindleNotFoundError(
+            f"Kindle ウィンドウの位置/サイズの取得に失敗しました（osascript 出力: {raw!r}）"
+        )
+    try:
+        x, y, w, h = (int(p.strip()) for p in parts)
+    except ValueError as e:
+        raise KindleNotFoundError(
+            f"Kindle ウィンドウの位置/サイズが数値として解釈できません（osascript 出力: {raw!r}）"
+        ) from e
+    return x, y, w, h
+
+
+def capture_region_to_png(bounds: tuple[int, int, int, int], out: Path) -> None:
+    """指定矩形領域 (x, y, w, h) を PNG でキャプチャする。
+
+    `-R x,y,w,h` で領域指定、`-x` で無音化、`-t png` で常に可逆形式。
+    後段で必要なら PIL で JPEG に変換する（screencapture の JPEG は品質
+    指定不可なので、PNG を経由して品質を厳密に制御する設計にしている）。
+
+    座標系は論理ピクセル（ポイント）。Retina ディスプレイでも AppleScript の
+    position/size がポイント値で返るので整合する。マルチディスプレイ環境で
+    上方向のサブディスプレイにある場合 y は負の値になるが、screencapture -R
+    は負の座標も受け付ける。
+    """
+    x, y, w, h = bounds
     out.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        ["screencapture", "-l", str(window_id), "-t", "png", "-x", str(out)],
+        ["screencapture", "-R", f"{x},{y},{w},{h}", "-t", "png", "-x", str(out)],
         check=True,
     )
     if not out.exists() or out.stat().st_size == 0:

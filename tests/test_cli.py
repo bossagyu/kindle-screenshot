@@ -102,10 +102,10 @@ def test_main_full_flow_stops_on_duplicate(tmp_path, monkeypatch):
 
     def fake_osascript(cmd, **kwargs):
         joined = " ".join(cmd)
-        # 順序注意: window_id 取得スクリプトには "exists process" も含まれているため、
-        # より具体的な "id of front window" を先に判定する。
-        if "id of front window" in joined:
-            return MagicMock(returncode=0, stdout="42\n", stderr="")
+        # 順序注意: window_bounds 取得スクリプトには "exists process" も含まれているため、
+        # より具体的な "position of front window" を先に判定する。
+        if "position of front window" in joined:
+            return MagicMock(returncode=0, stdout="0,0,1024,1400\n", stderr="")
         if "exists process" in joined:
             return MagicMock(returncode=0, stdout="true\n", stderr="")
         return MagicMock(returncode=0, stdout="", stderr="")
@@ -169,10 +169,10 @@ def test_main_max_pages_safety_stop(tmp_path, monkeypatch):
 
     def fake_osascript(cmd, **kwargs):
         joined = " ".join(cmd)
-        # 順序注意: window_id 取得スクリプトには "exists process" も含まれているため、
-        # より具体的な "id of front window" を先に判定する。
-        if "id of front window" in joined:
-            return MagicMock(returncode=0, stdout="42\n", stderr="")
+        # 順序注意: window_bounds 取得スクリプトには "exists process" も含まれているため、
+        # より具体的な "position of front window" を先に判定する。
+        if "position of front window" in joined:
+            return MagicMock(returncode=0, stdout="0,0,1024,1400\n", stderr="")
         if "exists process" in joined:
             return MagicMock(returncode=0, stdout="true\n", stderr="")
         return MagicMock(returncode=0, stdout="", stderr="")
@@ -245,8 +245,8 @@ def test_main_returns_3_when_screencapture_permission_denied(tmp_path, monkeypat
 
     def fake_osascript(cmd, **kwargs):
         joined = " ".join(cmd)
-        if "id of front window" in joined:
-            return MagicMock(returncode=0, stdout="42\n", stderr="")
+        if "position of front window" in joined:
+            return MagicMock(returncode=0, stdout="0,0,1024,1400\n", stderr="")
         if "exists process" in joined:
             return MagicMock(returncode=0, stdout="true\n", stderr="")
         return MagicMock(returncode=0, stdout="", stderr="")
@@ -300,8 +300,8 @@ def test_main_window_disappears_midway_falls_back_to_interrupt_prompt(tmp_path, 
 
     def fake_osascript(cmd, **kwargs):
         joined = " ".join(cmd)
-        if "id of front window" in joined:
-            return MagicMock(returncode=0, stdout="42\n", stderr="")
+        if "position of front window" in joined:
+            return MagicMock(returncode=0, stdout="0,0,1024,1400\n", stderr="")
         if "exists process" in joined:
             return MagicMock(returncode=0, stdout="true\n", stderr="")
         return MagicMock(returncode=0, stdout="", stderr="")
@@ -354,8 +354,8 @@ def test_main_window_disappears_midway_user_declines_pdf(tmp_path, monkeypatch):
 
     def fake_osascript(cmd, **kwargs):
         joined = " ".join(cmd)
-        if "id of front window" in joined:
-            return MagicMock(returncode=0, stdout="42\n", stderr="")
+        if "position of front window" in joined:
+            return MagicMock(returncode=0, stdout="0,0,1024,1400\n", stderr="")
         if "exists process" in joined:
             return MagicMock(returncode=0, stdout="true\n", stderr="")
         return MagicMock(returncode=0, stdout="", stderr="")
@@ -410,8 +410,8 @@ def test_main_max_pages_trims_trailing_duplicates(tmp_path, monkeypatch, capsys)
 
     def fake_osascript(cmd, **kwargs):
         joined = " ".join(cmd)
-        if "id of front window" in joined:
-            return MagicMock(returncode=0, stdout="42\n", stderr="")
+        if "position of front window" in joined:
+            return MagicMock(returncode=0, stdout="0,0,1024,1400\n", stderr="")
         if "exists process" in joined:
             return MagicMock(returncode=0, stdout="true\n", stderr="")
         return MagicMock(returncode=0, stdout="", stderr="")

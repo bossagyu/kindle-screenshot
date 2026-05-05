@@ -12,8 +12,8 @@ from pathlib import Path
 
 from kindle_screenshot.capture import (
     KindleNotFoundError,
-    capture_window_to_png,
-    get_kindle_window_id,
+    capture_region_to_png,
+    get_kindle_window_bounds,
     process_image,
 )
 from kindle_screenshot.hashing import DuplicateDetector, compute_hash
@@ -142,14 +142,15 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        window_id = get_kindle_window_id()
+        bounds = get_kindle_window_bounds()
     except KindleNotFoundError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
     except subprocess.CalledProcessError as e:
         return _print_subprocess_error_guidance(e)
 
-    print(f"Kindle ウィンドウを検出しました（window_id={window_id}）")
+    bx, by, bw, bh = bounds
+    print(f"Kindle ウィンドウを検出しました（位置={bx},{by} サイズ={bw}x{bh}）")
 
     if args.countdown > 0:
         print(f"{args.countdown} 秒後に開始します。Kindle ウィンドウが前面にあることを確認してください...")
@@ -175,7 +176,7 @@ def main(argv: list[str] | None = None) -> int:
                 final_path = tmp / f"page_{page_num:05d}.{ext}"
 
                 try:
-                    capture_window_to_png(window_id, tmp_png)
+                    capture_region_to_png(bounds, tmp_png)
                 except (RuntimeError, subprocess.CalledProcessError) as e:
                     # 1 回だけリトライ。screencapture は対象ウィンドウが消滅すると
                     # CalledProcessError（returncode=1, "could not create image from window"）
@@ -184,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  [{page_num}] キャプチャ失敗: {e} → リトライ", file=sys.stderr)
                     time.sleep(args.delay)
                     try:
-                        capture_window_to_png(window_id, tmp_png)
+                        capture_region_to_png(bounds, tmp_png)
                     except (RuntimeError, subprocess.CalledProcessError) as e2:
                         # 1 ページも取得できていない場合は権限不足の可能性が高い。
                         # CalledProcessError は外側の except 句に伝播させて HIGH #1
