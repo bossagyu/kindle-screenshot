@@ -62,14 +62,31 @@ def _print_subprocess_error_guidance(e: subprocess.CalledProcessError) -> int:
     stderr_text = (e.stderr or "").strip() if isinstance(e.stderr, str) else ""
 
     if cmd0 == "osascript":
-        print(
-            "ERROR: osascript の実行に失敗しました（Accessibility / Apple Events 権限不足の可能性）。\n"
-            "  System Settings > Privacy & Security > Accessibility に Terminal を追加してください。\n"
-            "  さらに System Settings > Privacy & Security > Automation でも Terminal から\n"
-            "  System Events / Kindle への許可が必要な場合があります。\n"
-            f"  詳細: {stderr_text}",
-            file=sys.stderr,
-        )
+        # osascript の失敗は (1) 権限不足 / (2) AppleScript 非対応の二大要因がある。
+        # `(-1728)` は「指定要素を取り出せない」エラーで、Kindle アプリ側の AppleScript
+        # 非対応（issue #7 / #9 の経緯）を示す可能性が高い。ロケール非依存の数値文字列で
+        # 判定する（日本語/英語のエラーメッセージ本文に依存しない）。
+        is_minus_1728 = "(-1728)" in stderr_text
+        message_lines = [
+            "ERROR: osascript の実行に失敗しました。考えられる原因:",
+            "  1. Accessibility / Apple Events 権限不足",
+            "     → System Settings > Privacy & Security > Accessibility に",
+            "       Terminal（Terminal.app / iTerm2 等）を追加してください。",
+            "       さらに System Settings > Privacy & Security > Automation でも",
+            "       Terminal から System Events への許可が必要な場合があります。",
+            "  2. Kindle アプリの AppleScript 非対応（バージョン互換性問題）",
+            "     → 当ツールが対応していない Kindle のバージョンの可能性があります。",
+            "       README の動作確認済みバージョンを確認してください。",
+        ]
+        if is_minus_1728:
+            message_lines.append(
+                "  ※ stderr に (-1728) が含まれています。これは AppleScript の互換性問題"
+            )
+            message_lines.append(
+                "     を示す可能性が高いため、原因 2 を優先してご確認ください。"
+            )
+        message_lines.append(f"  詳細: {stderr_text}")
+        print("\n".join(message_lines), file=sys.stderr)
         return 3
     if cmd0 == "screencapture":
         print(
