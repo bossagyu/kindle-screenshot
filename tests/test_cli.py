@@ -71,6 +71,31 @@ def test_parser_rejects_invalid_stop_after():
         p.parse_args(["--stop-after", "0"])
 
 
+def test_parser_accepts_keep_images_dir():
+    """--keep-images <dir> が受理されること（issue #14）。"""
+    p = build_parser()
+    args = p.parse_args(["--keep-images", "/tmp/imgs/"])
+    assert args.keep_images == "/tmp/imgs/"
+    assert args.no_pdf is False
+
+
+def test_parser_accepts_no_pdf_with_keep_images():
+    """--no-pdf --keep-images <dir> が受理されること（issue #14）。"""
+    p = build_parser()
+    # parse_args のみではバリデーションは走らないので、ここは「フラグが立つ」だけを確認。
+    args = p.parse_args(["--no-pdf", "--keep-images", "/tmp/imgs/"])
+    assert args.no_pdf is True
+    assert args.keep_images == "/tmp/imgs/"
+
+
+def test_parser_defaults_keep_images_and_no_pdf():
+    """既存デフォルトに新オプションを加えても影響が出ないこと。"""
+    p = build_parser()
+    args = p.parse_args([])
+    assert args.keep_images is None
+    assert args.no_pdf is False
+
+
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from PIL import Image
@@ -417,6 +442,228 @@ def test_main_window_disappears_midway_user_declines_pdf(tmp_path, monkeypatch):
 
     assert rc == 130
     assert not output_pdf.exists()
+
+
+def test_main_rejects_no_pdf_without_keep_images(capsys):
+    """--no-pdf 単独指定時は argparse がエラー終了（exit 2）すること（issue #14）。"""
+    with pytest.raises(SystemExit) as ei:
+        main(["--no-pdf", "--countdown", "0"])
+    assert ei.value.code == 2
+    err = capsys.readouterr().err
+    assert "--no-pdf" in err
+    assert "--keep-images" in err
+
+
+def test_main_keep_images_copies_files_and_generates_pdf(tmp_path, monkeypatch, capsys):
+    """--keep-images 指定時、画像が <dir> にコピーされ、PDF も生成されること（issue #14）。"""
+    monkeypatch.chdir(tmp_path)
+    output_pdf = tmp_path / "out.pdf"
+    keep_dir = tmp_path / "saved-imgs"
+
+    captured_pages = [0]
+
+    def fake_screencapture(cmd, **kwargs):
+        out_path = Path(cmd[-1])
+        captured_pages[0] += 1
+        idx = min(captured_pages[0], 3)
+        _make_png(out_path, (50 * idx, 100, 200))
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    def fake_osascript(cmd, **kwargs):
+        joined = " ".join(cmd)
+        if "position of front window" in joined:
+            return MagicMock(returncode=0, stdout="0,0,1024,1400\n", stderr="")
+        if "exists process" in joined:
+            return MagicMock(returncode=0, stdout="true\n", stderr="")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    def dispatch(cmd, **kwargs):
+        if cmd[0] == "screencapture":
+            return fake_screencapture(cmd, **kwargs)
+        return fake_osascript(cmd, **kwargs)
+
+    with patch("kindle_screenshot.capture.subprocess.run", side_effect=dispatch), \
+         patch("kindle_screenshot.input.subprocess.run", side_effect=dispatch), \
+         patch("kindle_screenshot.cli.input", return_value=""), \
+         patch("kindle_screenshot.cli.time.sleep"):
+        rc = main([
+            "-o", output_pdf.name,
+            "-d", str(tmp_path),
+            "--countdown", "0",
+            "--crop-top", "0",
+            "--crop-bottom", "0",
+            "--stop-after", "3",
+            "--keep-images", str(keep_dir),
+        ])
+
+    assert rc == 0
+    assert output_pdf.exists()
+    # 画像が --keep-images で指定したディレクトリにコピーされている
+    assert keep_dir.exists()
+    saved = sorted(keep_dir.glob("page_*.jpg"))
+    assert len(saved) >= 1
+    # ファイル名は 5 桁ゼロパディング
+    assert saved[0].name.startswith("page_00001.")
+    # 標準出力に保存メッセージが含まれる
+    out = capsys.readouterr().out
+    assert "画像" in out
+    assert str(keep_dir) in out
+
+
+def test_main_no_pdf_skips_pdf_generation(tmp_path, monkeypatch, capsys):
+    """--no-pdf 指定時、PDF が生成されず画像だけが残ること（issue #14）。"""
+    monkeypatch.chdir(tmp_path)
+    keep_dir = tmp_path / "imgs-only"
+
+    captured_pages = [0]
+
+    def fake_screencapture(cmd, **kwargs):
+        out_path = Path(cmd[-1])
+        captured_pages[0] += 1
+        idx = min(captured_pages[0], 3)
+        _make_png(out_path, (50 * idx, 100, 200))
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    def fake_osascript(cmd, **kwargs):
+        joined = " ".join(cmd)
+        if "position of front window" in joined:
+            return MagicMock(returncode=0, stdout="0,0,1024,1400\n", stderr="")
+        if "exists process" in joined:
+            return MagicMock(returncode=0, stdout="true\n", stderr="")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    def dispatch(cmd, **kwargs):
+        if cmd[0] == "screencapture":
+            return fake_screencapture(cmd, **kwargs)
+        return fake_osascript(cmd, **kwargs)
+
+    # images_to_pdf が呼ばれないことを保証するためにスパイを仕掛ける
+    with patch("kindle_screenshot.capture.subprocess.run", side_effect=dispatch), \
+         patch("kindle_screenshot.input.subprocess.run", side_effect=dispatch), \
+         patch("kindle_screenshot.cli.input", return_value=""), \
+         patch("kindle_screenshot.cli.time.sleep"), \
+         patch("kindle_screenshot.cli.images_to_pdf") as mock_pdf:
+        rc = main([
+            "-d", str(tmp_path),
+            "--countdown", "0",
+            "--crop-top", "0",
+            "--crop-bottom", "0",
+            "--stop-after", "3",
+            "--no-pdf",
+            "--keep-images", str(keep_dir),
+        ])
+
+    assert rc == 0
+    # PDF 化関数は呼ばれていない
+    mock_pdf.assert_not_called()
+    # ディレクトリ直下に PDF ファイルが生成されていない
+    assert list(tmp_path.glob("*.pdf")) == []
+    # 画像は残っている
+    assert keep_dir.exists()
+    assert sorted(keep_dir.glob("page_*.jpg"))
+    out = capsys.readouterr().out
+    assert "PDF 化はスキップしました" in out
+
+
+def test_main_keep_images_creates_dir_if_missing(tmp_path, monkeypatch):
+    """--keep-images で指定されたディレクトリが未存在でも自動作成されること（issue #14）。"""
+    monkeypatch.chdir(tmp_path)
+    output_pdf = tmp_path / "out.pdf"
+    # 親ディレクトリ自体も存在しないネストパス
+    keep_dir = tmp_path / "nested" / "deep" / "imgs"
+    assert not keep_dir.exists()
+
+    captured_pages = [0]
+
+    def fake_screencapture(cmd, **kwargs):
+        out_path = Path(cmd[-1])
+        captured_pages[0] += 1
+        idx = min(captured_pages[0], 3)
+        _make_png(out_path, (50 * idx, 100, 200))
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    def fake_osascript(cmd, **kwargs):
+        joined = " ".join(cmd)
+        if "position of front window" in joined:
+            return MagicMock(returncode=0, stdout="0,0,1024,1400\n", stderr="")
+        if "exists process" in joined:
+            return MagicMock(returncode=0, stdout="true\n", stderr="")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    def dispatch(cmd, **kwargs):
+        if cmd[0] == "screencapture":
+            return fake_screencapture(cmd, **kwargs)
+        return fake_osascript(cmd, **kwargs)
+
+    with patch("kindle_screenshot.capture.subprocess.run", side_effect=dispatch), \
+         patch("kindle_screenshot.input.subprocess.run", side_effect=dispatch), \
+         patch("kindle_screenshot.cli.input", return_value=""), \
+         patch("kindle_screenshot.cli.time.sleep"):
+        rc = main([
+            "-o", output_pdf.name,
+            "-d", str(tmp_path),
+            "--countdown", "0",
+            "--crop-top", "0",
+            "--crop-bottom", "0",
+            "--stop-after", "3",
+            "--keep-images", str(keep_dir),
+        ])
+
+    assert rc == 0
+    assert keep_dir.exists()
+    assert keep_dir.is_dir()
+    assert sorted(keep_dir.glob("page_*.jpg"))
+
+
+def test_main_keep_images_with_png_format(tmp_path, monkeypatch):
+    """--format png --keep-images 指定時、保存される画像の拡張子が .png になること（issue #14）。"""
+    monkeypatch.chdir(tmp_path)
+    output_pdf = tmp_path / "out.pdf"
+    keep_dir = tmp_path / "png-imgs"
+
+    captured_pages = [0]
+
+    def fake_screencapture(cmd, **kwargs):
+        out_path = Path(cmd[-1])
+        captured_pages[0] += 1
+        idx = min(captured_pages[0], 3)
+        _make_png(out_path, (50 * idx, 100, 200))
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    def fake_osascript(cmd, **kwargs):
+        joined = " ".join(cmd)
+        if "position of front window" in joined:
+            return MagicMock(returncode=0, stdout="0,0,1024,1400\n", stderr="")
+        if "exists process" in joined:
+            return MagicMock(returncode=0, stdout="true\n", stderr="")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    def dispatch(cmd, **kwargs):
+        if cmd[0] == "screencapture":
+            return fake_screencapture(cmd, **kwargs)
+        return fake_osascript(cmd, **kwargs)
+
+    with patch("kindle_screenshot.capture.subprocess.run", side_effect=dispatch), \
+         patch("kindle_screenshot.input.subprocess.run", side_effect=dispatch), \
+         patch("kindle_screenshot.cli.input", return_value=""), \
+         patch("kindle_screenshot.cli.time.sleep"):
+        rc = main([
+            "-o", output_pdf.name,
+            "-d", str(tmp_path),
+            "--countdown", "0",
+            "--crop-top", "0",
+            "--crop-bottom", "0",
+            "--stop-after", "3",
+            "--format", "png",
+            "--keep-images", str(keep_dir),
+        ])
+
+    assert rc == 0
+    assert keep_dir.exists()
+    saved = sorted(keep_dir.glob("page_*.png"))
+    assert len(saved) >= 1
+    # jpg ファイルは存在しない
+    assert sorted(keep_dir.glob("page_*.jpg")) == []
 
 
 def test_main_max_pages_trims_trailing_duplicates(tmp_path, monkeypatch, capsys):

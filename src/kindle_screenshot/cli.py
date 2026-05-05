@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -130,12 +131,24 @@ def build_parser() -> argparse.ArgumentParser:
                    help="左余白 px（デフォルト: 0）")
     p.add_argument("--crop-right", type=_non_negative_int, default=0,
                    help="右余白 px（デフォルト: 0）")
+    p.add_argument("--keep-images", default=None, metavar="DIR",
+                   help="指定ディレクトリに最終画像（page_NNNNN.<jpg|png>）を保存。"
+                        "省略時は破棄。Claude Code への画像入力ワークフローで利用。")
+    p.add_argument("--no-pdf", action="store_true",
+                   help="PDF 生成をスキップ。--keep-images <DIR> の指定が必須。")
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    # issue #14: --no-pdf 単独指定はエラー（--keep-images が必須）。
+    # parser.error() は内部で exit 2 を呼ぶ（argparse 標準のエラー終了コード）。
+    if args.no_pdf and not args.keep_images:
+        parser.error(
+            "--no-pdf を指定する場合は --keep-images <dir> の指定が必要です"
+        )
 
     output_name = args.output or default_output_name()
     output_path = Path(args.output_dir) / output_name
@@ -272,6 +285,23 @@ def main(argv: list[str] | None = None) -> int:
         if not captured_files:
             print("ERROR: キャプチャされたページがありません。", file=sys.stderr)
             return 4
+
+        # issue #14: --keep-images 指定時は PDF 化前に画像をコピーする。
+        # PDF 化失敗時にも画像が救出されるよう、コピーを先に実行する。
+        # tempfile.TemporaryDirectory の with ブロック終了で元ファイルが消えるため、
+        # コピーは必ずこの with ブロック内で完了させる。
+        if args.keep_images:
+            keep_dir = Path(args.keep_images)
+            keep_dir.mkdir(parents=True, exist_ok=True)
+            for src in captured_files:
+                shutil.copy2(src, keep_dir / src.name)
+            print(f"画像 {len(captured_files)} 件を保存: {keep_dir}")
+
+        # issue #14: --no-pdf 指定時は PDF 化をスキップ。
+        if args.no_pdf:
+            print("PDF 化はスキップしました（--no-pdf）")
+            print("完了。")
+            return 0
 
         print(f"{len(captured_files)} ページを PDF 化中...")
         images_to_pdf(captured_files, output_path)

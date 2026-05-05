@@ -42,7 +42,21 @@ uv run kindle-screenshot -o "harry-potter-1.pdf"
 
 # 漫画用（高画質 PNG + 長め待機 + 厳しめ停止条件）
 uv run kindle-screenshot -o "manga.pdf" --format png --delay 1.0 --stop-after 5
+
+# Claude Code に画像で投入したい場合（PDF + 画像両方を出力）
+uv run kindle-screenshot -o "book.pdf" --keep-images ./images/
+
+# 画像のみ生成（PDF 化をスキップ）
+uv run kindle-screenshot --no-pdf --keep-images ./images/
 ```
+
+### Claude Code への画像入力ワークフロー（`--keep-images` / `--no-pdf`）
+
+Claude Code に書籍内容を読み込ませる際、PDF を一括投入できないケース（PDF が巨大で分割が必要、画像単位で参照したい等）がある。`--keep-images <DIR>` を指定すると、最終クロップ済みの画像群（`page_00001.<jpg|png>` 形式、5 桁ゼロパディング）が指定ディレクトリにコピー保存される。さらに `--no-pdf` を併用すると PDF 化フェーズをスキップし、画像のみを生成する。
+
+- `--keep-images` 単独 → PDF + 画像両方を出力（PDF 化失敗時の救出にも有効）
+- `--no-pdf --keep-images <dir>` → 画像のみ
+- `--no-pdf` 単独 → エラー終了（exit 2）。`--keep-images <dir>` の指定が必須
 
 実行フロー:
 
@@ -72,6 +86,8 @@ uv run kindle-screenshot -o "manga.pdf" --format png --delay 1.0 --stop-after 5
 | `--crop-bottom` | `40` | 下部除去 px（進捗バー） |
 | `--crop-left` | `0` | 左余白 px |
 | `--crop-right` | `0` | 右余白 px |
+| `--keep-images <DIR>` | なし | 最終画像を `<DIR>` にコピー保存（`page_NNNNN.<jpg\|png>`） |
+| `--no-pdf` | off | PDF 生成をスキップ（`--keep-images` 併用必須） |
 
 `uv run kindle-screenshot --help` で全オプション参照。
 
