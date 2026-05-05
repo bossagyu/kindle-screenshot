@@ -15,7 +15,20 @@ tell application "System Events"
 end tell
 '''
 
-_ACTIVATE_SCRIPT = 'tell application "Kindle" to activate'
+# Kindle for Mac は `tell application "Kindle"` 構文をサポートしておらず、
+# `tell application "Kindle" to activate` は -1728 エラーで失敗する（issue #9）。
+# 代わりに System Events 経由で process の frontmost プロパティを true に設定する
+# アクセシビリティ API を使う。is_kindle_running と同じ System Events 経路のため、
+# 新たな権限要求は発生しない。
+# `if exists process "Kindle"` ガードにより、Kindle が途中で終了した場合でも
+# 例外を投げず、後続のキャプチャ失敗で中断扱いに合流できる。
+_ACTIVATE_SCRIPT = '''
+tell application "System Events"
+    if exists process "Kindle" then
+        set frontmost of process "Kindle" to true
+    end if
+end tell
+'''
 
 _RIGHT_ARROW_SCRIPT = 'tell application "System Events" to key code 124'
 

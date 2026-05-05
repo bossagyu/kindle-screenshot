@@ -227,6 +227,41 @@ def test_main_returns_3_when_osascript_permission_denied(tmp_path, monkeypatch, 
     captured = capsys.readouterr()
     assert "Accessibility" in captured.err
     assert "System Settings" in captured.err
+    # 副次バグ修正: 権限不足以外の可能性（AppleScript 非対応）も併記する
+    assert "AppleScript" in captured.err
+
+
+def test_main_osascript_minus_1728_emphasizes_applescript_incompatibility(
+    tmp_path, monkeypatch, capsys
+):
+    """osascript stderr に `(-1728)` が含まれる場合は「Kindle アプリの AppleScript 非対応の
+    可能性」を強調案内する。これは権限不足ではなくアプリ自体がスクリプタブルでないエラー
+    のため、ユーザーが Accessibility 設定を弄っても解決しない（issue #9 副次バグ）。"""
+    monkeypatch.chdir(tmp_path)
+
+    def fake_run(cmd, **kwargs):
+        if cmd[0] == "osascript":
+            raise subprocess.CalledProcessError(
+                returncode=1,
+                cmd=cmd,
+                output="",
+                stderr='execution error: application "Kindle" を取り出すことはできません。 (-1728)',
+            )
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("kindle_screenshot.input.subprocess.run", side_effect=fake_run), \
+         patch("kindle_screenshot.cli.input", return_value=""):
+        rc = main(["--countdown", "0"])
+
+    assert rc == 3
+    err = capsys.readouterr().err
+    # 権限不足案内も併記されているはず
+    assert "Accessibility" in err
+    # -1728 専用の追加案内が出ていることを確認
+    assert "-1728" in err
+    assert "AppleScript" in err
+    # バージョン互換性に言及
+    assert ("バージョン" in err) or ("互換" in err)
 
 
 def test_main_returns_3_when_screencapture_permission_denied(tmp_path, monkeypatch, capsys):
