@@ -31,6 +31,26 @@ def test_compute_hash_returns_hex_string(tmp_path):
     int(h, 16)  # 16進文字列として有効
 
 
+def test_compute_hash_is_stable_across_calls(tmp_path):
+    """同じ画像を繰り返しハッシュしても同じ値が返る（リサンプリング明示の安定性確認 / L2）。
+
+    リサンプリング方式が呼び出しごとにブレない（決定的）ことの間接検証。
+    Pillow のデフォルト挙動が変わっても、本テストが破綻しない設計を担保する。
+    """
+    p = make_image(tmp_path / "a.png", (123, 45, 67), size=(800, 1200))
+    hashes = [compute_hash(p) for _ in range(3)]
+    assert hashes[0] == hashes[1] == hashes[2]
+
+
+def test_compute_hash_independent_of_input_size_for_same_color(tmp_path):
+    """同色の単色画像なら入力サイズに関わらずハッシュが一致する（縮小後は同じ
+    64x64 グレースケールバイト列になるため）。リサンプリング方式が変わっても
+    単色画像では結果が一定になることを確認する不変条件テスト。"""
+    a = make_image(tmp_path / "a.png", (200, 100, 50), size=(400, 600))
+    b = make_image(tmp_path / "b.png", (200, 100, 50), size=(800, 1200))
+    assert compute_hash(a) == compute_hash(b)
+
+
 from kindle_screenshot.hashing import DuplicateDetector
 
 
