@@ -80,3 +80,61 @@ def test_capture_window_to_png_raises_when_file_missing(tmp_path):
         mock_run.return_value = MagicMock(returncode=0)
         with pytest.raises(RuntimeError, match="キャプチャ"):
             capture_window_to_png(window_id=12345, out=out)
+
+
+from PIL import Image
+
+from kindle_screenshot.capture import process_image
+
+
+def _make_png(path: Path, size: tuple[int, int] = (400, 600), color: tuple[int, int, int] = (200, 100, 50)) -> Path:
+    Image.new("RGB", size, color).save(path, "PNG")
+    return path
+
+
+def test_process_image_no_crop_jpeg(tmp_path):
+    src = _make_png(tmp_path / "src.png")
+    dst = tmp_path / "out.jpg"
+    process_image(src, dst, fmt="jpeg", quality=85)
+    assert dst.exists()
+    assert not src.exists()  # 中間 PNG は削除される
+    with Image.open(dst) as im:
+        assert im.format == "JPEG"
+        assert im.size == (400, 600)
+
+
+def test_process_image_no_crop_png(tmp_path):
+    src = _make_png(tmp_path / "src.png", size=(300, 400))
+    dst = tmp_path / "out.png"
+    process_image(src, dst, fmt="png", quality=85)
+    assert dst.exists()
+    with Image.open(dst) as im:
+        assert im.format == "PNG"
+        assert im.size == (300, 400)
+
+
+def test_process_image_crops_correctly(tmp_path):
+    src = _make_png(tmp_path / "src.png", size=(400, 600))
+    dst = tmp_path / "out.jpg"
+    process_image(src, dst, fmt="jpeg", quality=85,
+                  crop_top=60, crop_bottom=40, crop_left=10, crop_right=20)
+    with Image.open(dst) as im:
+        # 元 400x600 から 上60+下40+左10+右20 を除去
+        assert im.size == (400 - 10 - 20, 600 - 60 - 40)
+        assert im.size == (370, 500)
+
+
+def test_process_image_invalid_crop_raises(tmp_path):
+    src = _make_png(tmp_path / "src.png", size=(100, 100))
+    dst = tmp_path / "out.jpg"
+    with pytest.raises(ValueError, match="クロップ"):
+        process_image(src, dst, fmt="jpeg", quality=85,
+                      crop_top=60, crop_bottom=60)
+
+
+def test_process_image_jpg_alias_treated_as_jpeg(tmp_path):
+    src = _make_png(tmp_path / "src.png")
+    dst = tmp_path / "out.jpg"
+    process_image(src, dst, fmt="jpg", quality=85)
+    with Image.open(dst) as im:
+        assert im.format == "JPEG"

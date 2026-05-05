@@ -65,3 +65,49 @@ def capture_window_to_png(window_id: int, out: Path) -> None:
     )
     if not out.exists() or out.stat().st_size == 0:
         raise RuntimeError(f"キャプチャ失敗: {out}（権限不足の可能性）")
+
+
+def process_image(
+    src_png: Path,
+    dst: Path,
+    fmt: str,
+    quality: int,
+    crop_top: int = 0,
+    crop_bottom: int = 0,
+    crop_left: int = 0,
+    crop_right: int = 0,
+) -> None:
+    """PNG 中間ファイルを読み、余白を除去して目的形式で保存。中間ファイルは削除。
+
+    Args:
+        src_png: 入力 PNG パス（処理後に削除される）
+        dst: 出力先パス
+        fmt: "jpeg" | "jpg" | "png"
+        quality: JPEG 品質 (1-100)、PNG 時は無視
+        crop_top, crop_bottom, crop_left, crop_right: 各辺から削るピクセル数
+    """
+    fmt_norm = "jpeg" if fmt.lower() in ("jpg", "jpeg") else "png"
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with Image.open(src_png) as img:
+            if any((crop_top, crop_bottom, crop_left, crop_right)):
+                w, h = img.size
+                left = crop_left
+                top = crop_top
+                right = w - crop_right
+                bottom = h - crop_bottom
+                if left >= right or top >= bottom:
+                    raise ValueError(
+                        f"クロップ値が画像サイズを超えています: image={w}x{h}, "
+                        f"crops=top{crop_top}/bottom{crop_bottom}/left{crop_left}/right{crop_right}"
+                    )
+                img = img.crop((left, top, right, bottom))
+
+            if fmt_norm == "jpeg":
+                if img.mode in ("RGBA", "LA", "P"):
+                    img = img.convert("RGB")
+                img.save(dst, "JPEG", quality=quality, optimize=True)
+            else:
+                img.save(dst, "PNG", optimize=True)
+    finally:
+        src_png.unlink(missing_ok=True)
