@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 import tempfile
 import time
@@ -48,6 +49,39 @@ def _non_negative_int(value: str) -> int:
 def default_output_name() -> str:
     """`kindle-YYYYMMDD-HHMMSS.pdf` 形式のデフォルトファイル名を生成。"""
     return f"kindle-{datetime.now():%Y%m%d-%H%M%S}.pdf"
+
+
+def _print_subprocess_error_guidance(e: subprocess.CalledProcessError) -> int:
+    """subprocess の失敗内容を分析し、ユーザー向けガイダンスを stderr に表示する。
+
+    設計 §6 に基づき、osascript / screencapture の失敗を権限不足の可能性として案内し、
+    System Settings の該当ページへの導線を表示する。終了コード 3（権限不足）または 4
+    （その他のキャプチャ失敗）を返す。
+    """
+    cmd0 = e.cmd[0] if e.cmd else ""
+    stderr_text = (e.stderr or "").strip() if isinstance(e.stderr, str) else ""
+
+    if cmd0 == "osascript":
+        print(
+            "ERROR: osascript の実行に失敗しました（Accessibility / Apple Events 権限不足の可能性）。\n"
+            "  System Settings > Privacy & Security > Accessibility に Terminal を追加してください。\n"
+            "  さらに System Settings > Privacy & Security > Automation でも Terminal から\n"
+            "  System Events / Kindle への許可が必要な場合があります。\n"
+            f"  詳細: {stderr_text}",
+            file=sys.stderr,
+        )
+        return 3
+    if cmd0 == "screencapture":
+        print(
+            "ERROR: screencapture の実行に失敗しました（Screen Recording 権限不足、または\n"
+            "  Kindle ウィンドウが消失した可能性）。\n"
+            "  System Settings > Privacy & Security > Screen Recording に Terminal を追加してください。\n"
+            f"  詳細: {stderr_text}",
+            file=sys.stderr,
+        )
+        return 3
+    print(f"ERROR: 外部コマンド失敗: {e}", file=sys.stderr)
+    return 4
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -97,7 +131,12 @@ def main(argv: list[str] | None = None) -> int:
         print("\nキャンセルしました。", file=sys.stderr)
         return 1
 
-    if not is_kindle_running():
+    try:
+        running = is_kindle_running()
+    except subprocess.CalledProcessError as e:
+        return _print_subprocess_error_guidance(e)
+
+    if not running:
         print("ERROR: Kindle.app が起動していません。アプリを起動してから再実行してください。",
               file=sys.stderr)
         return 2
@@ -107,6 +146,8 @@ def main(argv: list[str] | None = None) -> int:
     except KindleNotFoundError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
+    except subprocess.CalledProcessError as e:
+        return _print_subprocess_error_guidance(e)
 
     print(f"Kindle ウィンドウを検出しました（window_id={window_id}）")
 
@@ -166,6 +207,10 @@ def main(argv: list[str] | None = None) -> int:
         except KeyboardInterrupt:
             interrupted = True
             print("\n中断シグナルを受信しました。", file=sys.stderr)
+        except subprocess.CalledProcessError as e:
+            # ループ内の osascript / screencapture が失敗した場合は権限不足の可能性が
+            # 高い。設計 §6 に従い、終了コード 3 と System Settings の案内を表示する。
+            return _print_subprocess_error_guidance(e)
 
         if interrupted:
             try:

@@ -198,3 +198,77 @@ def test_main_max_pages_safety_stop(tmp_path, monkeypatch):
     assert rc == 0
     assert output_pdf.exists()
     assert counter[0] == 5
+
+
+import subprocess
+
+
+def test_main_returns_3_when_osascript_permission_denied(tmp_path, monkeypatch, capsys):
+    """osascript が CalledProcessError で失敗（Accessibility 権限不足相当）した場合、
+    終了コード 3 + System Settings への案内が出ることを確認（HIGH #1）。"""
+    monkeypatch.chdir(tmp_path)
+
+    def fake_run(cmd, **kwargs):
+        # is_kindle_running の osascript 呼び出しで失敗をシミュレート
+        if cmd[0] == "osascript":
+            raise subprocess.CalledProcessError(
+                returncode=1,
+                cmd=cmd,
+                output="",
+                stderr="execution error: Not authorized to send Apple events to System Events. (-1743)",
+            )
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("kindle_screenshot.input.subprocess.run", side_effect=fake_run), \
+         patch("kindle_screenshot.cli.input", return_value=""):
+        rc = main(["--countdown", "0"])
+
+    assert rc == 3
+    captured = capsys.readouterr()
+    assert "Accessibility" in captured.err
+    assert "System Settings" in captured.err
+
+
+def test_main_returns_3_when_screencapture_permission_denied(tmp_path, monkeypatch, capsys):
+    """screencapture が 1 ページ目から CalledProcessError で失敗（Screen Recording 権限不足相当）
+    した場合、終了コード 3 + Screen Recording 設定への案内が出ることを確認（HIGH #1）。"""
+    monkeypatch.chdir(tmp_path)
+    output_pdf = tmp_path / "out.pdf"
+
+    def fake_screencapture(cmd, **kwargs):
+        raise subprocess.CalledProcessError(
+            returncode=1,
+            cmd=cmd,
+            output="",
+            stderr="screencapture: cannot run two captures at a time",
+        )
+
+    def fake_osascript(cmd, **kwargs):
+        joined = " ".join(cmd)
+        if "id of front window" in joined:
+            return MagicMock(returncode=0, stdout="42\n", stderr="")
+        if "exists process" in joined:
+            return MagicMock(returncode=0, stdout="true\n", stderr="")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    def dispatch(cmd, **kwargs):
+        if cmd[0] == "screencapture":
+            return fake_screencapture(cmd, **kwargs)
+        return fake_osascript(cmd, **kwargs)
+
+    with patch("kindle_screenshot.capture.subprocess.run", side_effect=dispatch), \
+         patch("kindle_screenshot.input.subprocess.run", side_effect=dispatch), \
+         patch("kindle_screenshot.cli.input", return_value=""), \
+         patch("kindle_screenshot.cli.time.sleep"):
+        rc = main([
+            "-o", output_pdf.name,
+            "-d", str(tmp_path),
+            "--countdown", "0",
+            "--crop-top", "0",
+            "--crop-bottom", "0",
+        ])
+
+    assert rc == 3
+    captured = capsys.readouterr()
+    assert "Screen Recording" in captured.err
+    assert "System Settings" in captured.err
