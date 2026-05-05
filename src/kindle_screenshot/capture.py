@@ -49,3 +49,19 @@ def get_kindle_window_id() -> int:
     if out == "NO_WINDOW":
         raise KindleNotFoundError("Kindle のウィンドウが見つかりません。書籍を開いてください。")
     return int(out)
+
+
+def capture_window_to_png(window_id: int, out: Path) -> None:
+    """指定ウィンドウ ID の内容を PNG でキャプチャする。
+
+    `-x` で無音化、`-t png` で常に可逆形式。後段で必要なら PIL で
+    JPEG に変換する（screencapture の JPEG は品質指定不可なので、
+    PNG を経由して品質を厳密に制御する設計にしている）。
+    """
+    out.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["screencapture", "-l", str(window_id), "-t", "png", "-x", str(out)],
+        check=True,
+    )
+    if not out.exists() or out.stat().st_size == 0:
+        raise RuntimeError(f"キャプチャ失敗: {out}（権限不足の可能性）")
