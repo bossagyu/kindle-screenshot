@@ -128,11 +128,16 @@ def process_image(
     Args:
         src_png: 入力 PNG パス（処理後に削除される）
         dst: 出力先パス
-        fmt: "jpeg" | "jpg" | "png"
+        fmt: "jpeg" | "png"（CLI の --format choices と整合）
         quality: JPEG 品質 (1-100)、PNG 時は無視
         crop_top, crop_bottom, crop_left, crop_right: 各辺から削るピクセル数
+
+    Raises:
+        ValueError: fmt が "jpeg" / "png" 以外、またはクロップ値が画像サイズを超える
     """
-    fmt_norm = "jpeg" if fmt.lower() in ("jpg", "jpeg") else "png"
+    fmt_norm = fmt.lower()
+    if fmt_norm not in ("jpeg", "png"):
+        raise ValueError(f"fmt は 'jpeg' または 'png' を指定してください: {fmt!r}")
     dst.parent.mkdir(parents=True, exist_ok=True)
     try:
         with Image.open(src_png) as img:

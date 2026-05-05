@@ -238,9 +238,19 @@ def test_process_image_invalid_crop_raises(tmp_path):
                       crop_top=60, crop_bottom=60)
 
 
-def test_process_image_jpg_alias_treated_as_jpeg(tmp_path):
+def test_process_image_rejects_jpg_alias(tmp_path):
+    """L3 (#3): "jpg" エイリアスは CLI の --format choices に含まれず、CLI 経由
+    では到達不能だった。内部 API でもデッドコードを残さないため、"jpg" は
+    ValueError で拒否する。"jpeg" / "png" のみが正規の値。"""
     src = _make_png(tmp_path / "src.png")
     dst = tmp_path / "out.jpg"
-    process_image(src, dst, fmt="jpg", quality=85)
-    with Image.open(dst) as im:
-        assert im.format == "JPEG"
+    with pytest.raises(ValueError, match="jpeg"):
+        process_image(src, dst, fmt="jpg", quality=85)
+
+
+def test_process_image_rejects_unknown_format(tmp_path):
+    """その他の未知の形式も ValueError で拒否する。"""
+    src = _make_png(tmp_path / "src.png")
+    dst = tmp_path / "out.bmp"
+    with pytest.raises(ValueError, match="jpeg"):
+        process_image(src, dst, fmt="bmp", quality=85)
