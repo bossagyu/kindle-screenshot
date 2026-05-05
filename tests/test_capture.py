@@ -50,6 +50,37 @@ def test_get_kindle_window_bounds_calls_osascript():
         assert "size of front window" in script
 
 
+def test_get_kindle_window_bounds_raises_on_wrong_field_count():
+    """カンマ区切り要素数が 4 でない出力を KindleNotFoundError に翻訳する。"""
+    with patch("kindle_screenshot.capture.subprocess.run") as mock_run:
+        mock_run.return_value = _mock_run("760,-2033,1684\n")  # 3 要素のみ
+        with pytest.raises(KindleNotFoundError, match="位置/サイズ"):
+            get_kindle_window_bounds()
+
+
+def test_get_kindle_window_bounds_raises_on_non_comma_format():
+    """カンマ区切りでない出力を KindleNotFoundError に翻訳する。"""
+    with patch("kindle_screenshot.capture.subprocess.run") as mock_run:
+        mock_run.return_value = _mock_run("unexpected output\n")
+        with pytest.raises(KindleNotFoundError, match="位置/サイズ"):
+            get_kindle_window_bounds()
+
+
+def test_get_kindle_window_bounds_raises_on_non_numeric_values():
+    """非数値要素を含む出力を KindleNotFoundError に翻訳する。"""
+    with patch("kindle_screenshot.capture.subprocess.run") as mock_run:
+        mock_run.return_value = _mock_run("foo,bar,baz,qux\n")
+        with pytest.raises(KindleNotFoundError, match="数値として解釈"):
+            get_kindle_window_bounds()
+
+
+def test_get_kindle_window_bounds_tolerates_whitespace():
+    """カンマ前後の空白を許容する（AppleScript の出力差異吸収）。"""
+    with patch("kindle_screenshot.capture.subprocess.run") as mock_run:
+        mock_run.return_value = _mock_run("760, -2033, 1684, 1473\n")
+        assert get_kindle_window_bounds() == (760, -2033, 1684, 1473)
+
+
 from pathlib import Path
 
 from kindle_screenshot.capture import capture_region_to_png
